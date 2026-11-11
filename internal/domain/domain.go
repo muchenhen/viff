@@ -40,6 +40,15 @@ type Repo struct {
 	UUID     string // repository UUID (Subversion)
 }
 
+// RepoChange is a hint to requery Git, not a snapshot of repository state.
+// Observed is the newest observation in the batch, when the watcher knows it.
+// Overflow means paths may have been lost and caches need revalidation.
+type RepoChange struct {
+	Observed time.Time
+	Meta     bool
+	Overflow bool
+}
+
 // LockKey is the serialization key for writes. Two working trees of one Git
 // repository share refs and objects through CommonDir, so they must not write
 // concurrently; Subversion has no shared metadata between checkouts, so each

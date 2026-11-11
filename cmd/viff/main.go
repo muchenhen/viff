@@ -230,8 +230,12 @@ func run() (code int) {
 	updates := updater.NewClient(version.Version)
 	ws.SetUpdateService(updates)
 	updates.Cleanup()
-	ws.Watch = func(repo domain.Repo, changed func(meta, overflow bool)) (vapp.Watcher, error) {
-		return platform.Watch(repo, changed)
+	ws.Watch = func(repo domain.Repo, changed func(domain.RepoChange)) (vapp.Watcher, error) {
+		return platform.Watch(repo, changed, platform.WatchOptions{
+			WorktreeRelevant: func(ctx context.Context, paths []string) (bool, error) {
+				return git.WorktreeChangesRelevant(ctx, repo, paths)
+			},
+		})
 	}
 	win = viffui.New(ws)
 	phaseOf("window_create", windowCreate)

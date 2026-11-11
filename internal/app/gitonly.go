@@ -44,14 +44,3 @@ func (w *Workspace) hasUndo() bool {
 	}
 	return w.Caps.HistoryWriter != nil
 }
-
-// remoteHeads reports the remote's default branch names, or nothing when the
-// backend has no such concept. It never fails: a comparison falls back to the
-// configured default when the name is unknown.
-func (w *Workspace) remoteHeads(ctx context.Context, repo domain.Repo) (map[string]string, error) {
-	h, ok := w.Git.(remoteHeadReader)
-	if !ok {
-		return nil, nil
-	}
-	return h.RemoteHeads(ctx, repo)
-}

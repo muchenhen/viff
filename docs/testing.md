@@ -51,6 +51,32 @@ go test -count=1 -tags "vivahead litheaudit" ./internal/ui
 
 ## Pre-publication acceptance / 发布前验收
 
+### Windows native file watching / Windows 原生文件监听
+
+Compare the same checkout and Git executable against the previous polling build.
+After the initial status settles, count ordinary `status` calls, Git process-tree
+CPU, Viff CPU and process handles over five minutes in each stable window state:
+foreground, unfocused and minimized. Record focus recovery separately. On a
+disposable checkout, generate a burst under a Git ignored directory, then edit
+a tracked file there and check that it is still reported. Measure command counts
+for the burst separately from the idle interval. See [ADR 0049](decisions/0049-windows-native-file-watching.md).
+
+前后两版使用同一工作树和 Git 可执行文件。首轮状态稳定后，在前台、失焦和最小化三种
+状态下各观察五分钟，分别记录普通 `status` 次数、Git 进程树 CPU、Viff CPU 和进程句柄数。
+恢复焦点单独统计。在隔离工作树的 Git 忽略目录中批量生成文件，再编辑该目录中已跟踪的
+文件并验证界面能更新；批量事件和空闲窗口分别统计。见 [ADR 0049](decisions/0049-windows-native-file-watching.md)。
+
+On Windows, run `go test -count=1 ./internal/platform ./internal/gitcli ./internal/app`
+for file creation, edits, deletion and rename, shared and per-worktree metadata,
+ignored and tracked paths, native buffer loss, rearming, cancellation and polling
+selection. The suspend detector is exercised with synthetic elapsed and awake
+clock samples; desktop focus and idle CPU are measured with the actual executable.
+
+Windows 上运行 `go test -count=1 ./internal/platform ./internal/gitcli ./internal/app`，
+覆盖创建、编辑、删除、重命名，共享及工作树私有元数据，忽略及已跟踪路径，
+原生缓冲丢失、恢复订阅、取消和轮询回退。休眠检测使用模拟的总经过时间和系统运行时间；
+桌面焦点与空闲 CPU 使用实际应用测量。
+
 ### LFS attribute discovery / LFS 属性文件发现
 
 Use the same disposable checkout for both builds. Add tracked and visible

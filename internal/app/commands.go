@@ -70,6 +70,9 @@ func (w *Workspace) run(title string, undo *undoSpec, op Op, o RunOptions) {
 		return
 	}
 	task, ctx, finish := w.startTask(title, !o.Read)
+	if !o.Read {
+		rs.watchWrites++
+	}
 	if !o.Read && rs.LFSStats.Status == LFSStatsLoading {
 		// Even a write that leaves the same final HEAD/index can race with
 		// the scan. Its follow-up status query handles completed statistics.
@@ -110,11 +113,22 @@ func (w *Workspace) run(title string, undo *undoSpec, op Op, o RunOptions) {
 		}
 		w.post(func() {
 			finish()
+			if !o.Read {
+				rs.watchWrites--
+			}
 			if entry != nil {
 				w.recordUndo(entry)
 			}
 			if w.Repo == rs {
-				w.Refresh(true)
+				if !o.Read {
+					rs.watchCovered = time.Now()
+				}
+				if rs.watchLost {
+					rs.watchLost = false
+					w.RefreshManually()
+				} else {
+					w.Refresh(true)
+				}
 			}
 			if err != nil {
 				if o.OnError == nil || !o.OnError(err) {

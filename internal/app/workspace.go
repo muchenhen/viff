@@ -178,7 +178,7 @@ type Workspace struct {
 	backends []probeTarget
 	// Watch starts file-system watching for a repository; set by the
 	// composition root so platform code stays out of this package.
-	Watch func(repo domain.Repo, changed func(meta, overflow bool)) (Watcher, error)
+	Watch func(repo domain.Repo, changed func(domain.RepoChange)) (Watcher, error)
 	// ConfirmCheckout asks the UI whether to stash local changes and retry a
 	// checkout Git blocked. It runs on the UI thread and returns true when the
 	// user accepted; nil reports the failure instead of offering the choice.

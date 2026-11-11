@@ -109,7 +109,7 @@ VIFF_SHOTS=/some/dir go test -tags vivahead ./internal/ui/  # 同时把截图写
 ## 已知限制
 
 - 多仓库写入操作只针对当前仓库；非活动仓库在打开总览或手动刷新时更新。Project 面板的 Workspace 分组只做导航与切换，非活动仓库不加载文件树，也不提供跨仓库提交/推送，见 [0046](decisions/0046-multi-repository-projects.md)。ChangeList 是文件分组，不提供独立索引或跨仓库提交，见 [0020](decisions/0020-repositories-changelists.md)。从父目录发现仓库按名称跳过依赖/构建目录，默认深度 4、目录 2000、仓库 200；超出或跳过时对话框会提示，见 [0036](decisions/0036-repository-discovery.md)。
-- 已在 macOS，以及 Windows Server 2022 x64（Git 2.56.0.windows.4）上验证 Git 功能和 Viva 无头界面；Windows 10/11 的实际桌面交互、输入法及安装分发尚未验收。Linux 和 Windows 的文件监听仍是轮询，见 [0003](decisions/0003-file-watching.md)。
+- 已在 macOS，以及 Windows Server 2022 x64（Git 2.56.0.windows.4）上验证 Git 功能和 Viva 无头界面。Windows 本地 NTFS/ReFS Git 仓库使用原生文件监听，空闲时每五分钟校验一次；Linux、WSL、网络路径和其他不支持原生监听的 Windows 仓库仍使用轮询。见 [0049](decisions/0049-windows-native-file-watching.md)。
 - 界面字体默认为系统字体（SF Pro），没有使用 Inter；设置里可分别选择「界面字体」（全部已安装族）与「diff 字体」（仅等宽族，用于 diff、控制台与哈希），见 [0002](decisions/0002-fonts.md)。
 - 冲突支持逐块接受两侧内容；自由文本编辑、二进制或不可靠冲突标记仍需要外部编辑器，见 [0019](decisions/0019-git-issue-gaps.md)。Copy for AI 只写系统剪贴板，不调用模型、不发网络请求；单块 200 行 / 20 KB、全文 200 KB 截断，见 [0032](decisions/0032-ai-conflict-context.md)。
 - 撤销只在当前会话、当前仓库生效，保留最近 20 条；首次提交、reword/squash/drop、冲突后 continue、reset --soft/--mixed 的撤销不支持，也没有 redo，见 [0030](decisions/0030-undo.md)。

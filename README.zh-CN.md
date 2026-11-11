@@ -62,6 +62,7 @@ Git 仍是核心。围绕它，Viff 提供项目浏览与 Quick Open、工作树
 | 撤销操作   | ⌘Z 撤销本会话内上一次本地提交、合并、rebase、检出或分支改动                                                                       |
 | 解决冲突   | Ours / Result / Theirs 三栏，逐块接受 Ours / Theirs / Both，显式标记解决，可复制冲突上下文给外部 AI                               |
 | 多工作目录 | 从新分支或已有分支创建 Worktree，管理子模块，保护未提交改动                                                                       |
+| 跟踪外部变化 | Windows 本地 NTFS/ReFS Git 仓库使用原生通知，空闲时每五分钟校验一次；Windows 上其他仓库[使用轮询](docs/decisions/0049-windows-native-file-watching.md) |
 | 大文件     | 检测 Git LFS 规则与缺失依赖；可从 LFS 标记或 Git 工具窗口菜单按需统计受管文件并复制清单                                            |
 | 同步协作   | Fetch、Pull、Push、force-with-lease、远端、补丁、签名与凭据设置                                                                   |
 | 网页协作   | 在 GitHub、GitLab、Bitbucket 或 Gitea 打开提交、分支、比较与创建 PR 的页面                                                        |
