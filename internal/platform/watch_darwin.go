@@ -94,7 +94,7 @@ func viffFSEvent(handle C.uintptr_t, path *C.char, flags C.uint32_t) {
 // FSEvents delivers per-file events without one descriptor per file, so
 // large trees cost nothing while idle. A slow fingerprint check of the Git
 // directory backs it up in case events are dropped.
-func Watch(repo domain.Repo, changed func(meta, overflow bool)) (Watcher, error) {
+func Watch(repo domain.Repo, changed func(domain.RepoChange), _ WatchOptions) (Watcher, error) {
 	w := &fsWatch{repo: repo, debounce: newDebouncer(250*time.Millisecond, changed)}
 	roots := []string{repo.Root}
 	for _, d := range []string{repo.MetaDir, repo.CommonDir} {

@@ -400,10 +400,12 @@ func (r *Runner) Run(ctx context.Context, dir string, args ...string) ([]byte, e
 
 // RunInput executes git with stdin.
 func (r *Runner) RunInput(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
-	return r.runInput(ctx, dir, stdin, false, args...)
+	return r.runInput(ctx, dir, stdin, false, 0, args...)
 }
 
-func (r *Runner) runInput(ctx context.Context, dir string, stdin []byte, processTree bool, args ...string) ([]byte, error) {
+// answerExit optionally treats a nonzero Git exit status as a normal answer
+// rather than logging a command failure. Cancellation is always an error.
+func (r *Runner) runInput(ctx context.Context, dir string, stdin []byte, processTree bool, answerExit int, args ...string) ([]byte, error) {
 	start := time.Now()
 	cmd, err := r.command(ctx, dir, args)
 	if err != nil {
@@ -423,6 +425,9 @@ func (r *Runner) runInput(ctx context.Context, dir string, stdin []byte, process
 	}
 	if err != nil {
 		err = r.wrap(ctx, dir, args, err, stderr.buf.String(), stdout.String())
+		if answerExit != 0 && ctx.Err() == nil && exitCodeOf(err) == answerExit {
+			err = nil
+		}
 	}
 	if r.Log != nil {
 		r.Log(dir, args, time.Since(start), err)

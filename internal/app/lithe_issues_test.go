@@ -17,7 +17,7 @@ import (
 // fakeWatcher stands in for platform.Watch so a test can deliver the same
 // callback the OS watcher would send, without opening a window.
 type fakeWatcher struct {
-	changed func(meta, overflow bool)
+	changed func(domain.RepoChange)
 	closed  bool
 }
 
@@ -33,7 +33,7 @@ func TestIssue22ExternalCommitAndRefsRefreshThroughWatcher(t *testing.T) {
 	f.commitAll("base")
 
 	var watch *fakeWatcher
-	f.w.Watch = func(repo domain.Repo, changed func(meta, overflow bool)) (Watcher, error) {
+	f.w.Watch = func(repo domain.Repo, changed func(domain.RepoChange)) (Watcher, error) {
 		watch = &fakeWatcher{changed: changed}
 		return watch, nil
 	}
@@ -48,7 +48,7 @@ func TestIssue22ExternalCommitAndRefsRefreshThroughWatcher(t *testing.T) {
 	f.git("branch", "external-branch")
 	newHead := f.head()
 
-	watch.changed(true, false) // what FSEvents reports for .git changes
+	watch.changed(domain.RepoChange{Meta: true})
 	f.settle(func() bool {
 		rs := f.w.Repo
 		return f.idle() && rs.Status.Branch.Head == newHead &&

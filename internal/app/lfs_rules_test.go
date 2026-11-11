@@ -165,7 +165,7 @@ func TestLFSRulesFailAndRevalidate(t *testing.T) {
 		return nil
 	}
 	var watcher *fakeWatcher
-	f.w.Watch = func(_ domain.Repo, changed func(bool, bool)) (Watcher, error) {
+	f.w.Watch = func(_ domain.Repo, changed func(domain.RepoChange)) (Watcher, error) {
 		watcher = &fakeWatcher{changed: changed}
 		return watcher, nil
 	}
@@ -187,7 +187,7 @@ func TestLFSRulesFailAndRevalidate(t *testing.T) {
 		t.Fatalf("unchanged status retried during backoff: %d calls", got)
 	}
 	fail.Store(false)
-	watcher.changed(true, true)
+	watcher.changed(domain.RepoChange{Meta: true, Overflow: true})
 	assertLFSRules(f, "*.psd")
 	if got := b.discoveries.Load(); got != 2 {
 		t.Fatalf("overflow recovery discoveries = %d, want 2", got)

@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,13 @@ import (
 // Watcher stops a watch.
 type Watcher interface{ Close() }
 
+// WatchOptions lets a native watcher ask the Git adapter whether a batch of
+// repository-relative, slash-separated worktree paths can change status.
+// An absent filter or an error is treated as a reason to recheck.
+type WatchOptions struct {
+	WorktreeRelevant func(context.Context, []string) (bool, error)
+}
+
 // debouncer coalesces bursts of events into one callback: a branch switch
 // that touches thousands of files becomes one refresh. meta is sticky within
 // a burst so a Git-directory change is never lost behind worktree events.
@@ -24,11 +32,11 @@ type debouncer struct {
 	meta     bool
 	overflow bool
 	delay    time.Duration
-	changed  func(meta, overflow bool)
+	changed  func(domain.RepoChange)
 	closed   bool
 }
 
-func newDebouncer(delay time.Duration, changed func(bool, bool)) *debouncer {
+func newDebouncer(delay time.Duration, changed func(domain.RepoChange)) *debouncer {
 	return &debouncer{delay: delay, changed: changed}
 }
 
@@ -51,7 +59,7 @@ func (d *debouncer) event(meta, overflow bool) {
 		closed := d.closed
 		d.mu.Unlock()
 		if !closed {
-			d.changed(m, overflow)
+			d.changed(domain.RepoChange{Meta: m, Overflow: overflow})
 		}
 	})
 }
@@ -78,13 +86,23 @@ func classify(repo domain.Repo, path string) (relevant, meta bool) {
 			rel := strings.TrimPrefix(strings.TrimPrefix(path, d), "/")
 			// Object writes and lock files are followed by the ref or index
 			// change that matters; logs only matter to the reflog view.
-			if strings.HasPrefix(rel, "objects/") || strings.HasSuffix(rel, ".lock") || strings.HasPrefix(rel, "logs/") || strings.HasPrefix(rel, "lfs/") {
+			if ignoredGitMetadata(rel) {
 				return false, false
 			}
 			return true, true
 		}
 	}
 	return true, false
+}
+
+func ignoredGitMetadata(rel string) bool {
+	first, rest, _ := strings.Cut(rel, "/")
+	if first == "worktrees" {
+		_, rest, _ = strings.Cut(rest, "/") // another linked worktree's name
+		first, _, _ = strings.Cut(rest, "/")
+	}
+	return first == "objects" || first == "logs" || first == "lfs" ||
+		strings.HasSuffix(rel, ".lock")
 }
 
 // pollWatcher is the bounded fallback: it checks a fingerprint of the Git
@@ -99,6 +117,9 @@ func (p *pollWatcher) Close() { p.once.Do(func() { close(p.stop) }) }
 func gitFingerprint(repo domain.Repo) string {
 	var b strings.Builder
 	for _, dir := range []string{repo.MetaDir, repo.CommonDir} {
+		if dir == "" {
+			continue
+		}
 		for _, name := range []string{"HEAD", "index", "packed-refs", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "FETCH_HEAD"} {
 			if st, err := os.Stat(filepath.Join(dir, name)); err == nil {
 				b.WriteString(name)
@@ -120,7 +141,7 @@ func gitFingerprint(repo domain.Repo) string {
 
 // startPolling checks the Git directory every interval and reports a
 // working-tree check every worktreeEvery intervals.
-func startPolling(repo domain.Repo, interval time.Duration, worktreeEvery int, changed func(bool, bool)) *pollWatcher {
+func startPolling(repo domain.Repo, interval time.Duration, worktreeEvery int, changed func(domain.RepoChange)) *pollWatcher {
 	p := &pollWatcher{stop: make(chan struct{})}
 	go func() {
 		last := gitFingerprint(repo)
@@ -136,9 +157,9 @@ func startPolling(repo domain.Repo, interval time.Duration, worktreeEvery int, c
 				fp := gitFingerprint(repo)
 				if fp != last {
 					last = fp
-					changed(true, false)
+					changed(domain.RepoChange{Meta: true})
 				} else if worktreeEvery > 0 && n%worktreeEvery == 0 {
-					changed(false, false)
+					changed(domain.RepoChange{})
 				}
 			}
 		}

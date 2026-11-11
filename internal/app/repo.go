@@ -70,12 +70,18 @@ type RepoState struct {
 	detailSeq    uint64
 	detailCancel context.CancelFunc
 
-	statusSeq   uint64 // increments for each status query
-	refreshing  bool
-	refreshMore bool
-	refreshMeta bool // OR of metadata requests in the pending refresh only
-	refsSeq     uint64
-	refsKey     string
+	statusSeq     uint64 // increments for each status query
+	refreshing    bool
+	refreshMore   bool
+	refreshMeta   bool // OR of metadata requests in the pending refresh only
+	refreshCancel context.CancelFunc
+	// Write completion covers watcher observations already made. An event
+	// observed after this point still needs a new pass.
+	watchCovered time.Time
+	watchWrites  int
+	watchLost    bool
+	refsSeq      uint64
+	refsKey      string
 }
 
 // writeLocks serializes writes per common Git directory: worktrees of one
@@ -180,6 +186,7 @@ func (w *Workspace) setRepo(repo domain.Repo) {
 		oldRoot = w.Repo.Repo.Root
 		w.Repo.Log.close()
 		w.Repo.cancelDetail()
+		w.Repo.cancelRefresh()
 		w.cancelLFS(w.Repo)
 	}
 	w.closeWatcher(oldRoot)
@@ -197,9 +204,21 @@ func (w *Workspace) setRepo(repo domain.Repo) {
 		w.Settings.AddRecent(repo.Root)
 		w.Settings.Save()
 	}
-	w.Refresh(true)
-	w.ReloadLog()
 	w.startWatcher(repo)
+	if watch, ok := w.watcher.(interface{ Ready() <-chan struct{} }); ok {
+		state, ready := w.Repo, watch.Ready()
+		go func() {
+			<-ready
+			w.post(func() {
+				if w.Repo == state {
+					w.Refresh(true)
+				}
+			})
+		}()
+	} else {
+		w.Refresh(true)
+	}
+	w.ReloadLog()
 }
 
 // startWatcher starts the file-system watch of repo. The backend is chosen by
@@ -214,15 +233,30 @@ func (w *Workspace) startWatcher(repo domain.Repo) {
 		return
 	}
 	state := w.Repo
-	watcher, err := w.Watch(repo, func(meta, overflow bool) {
+	// A minimized or busy window need not drain once per OS delivery.
+	// Keep one UI notification, retaining the strongest scope.
+	var mu sync.Mutex
+	var pending domain.RepoChange
+	posted := false
+	watcher, err := w.Watch(repo, func(change domain.RepoChange) {
+		mu.Lock()
+		pending.Meta = pending.Meta || change.Meta
+		pending.Overflow = pending.Overflow || change.Overflow
+		if !posted || change.Observed.IsZero() || !pending.Observed.IsZero() && change.Observed.After(pending.Observed) {
+			pending.Observed = change.Observed
+		}
+		if posted {
+			mu.Unlock()
+			return
+		}
+		posted = true
+		mu.Unlock()
 		w.post(func() {
-			if w.Repo == state {
-				if overflow {
-					w.RefreshManually()
-				} else {
-					w.Refresh(meta)
-				}
-			}
+			mu.Lock()
+			change := pending
+			pending, posted = domain.RepoChange{}, false
+			mu.Unlock()
+			w.applyRepoChange(state, change)
 		})
 	})
 	if err != nil {
@@ -241,6 +275,21 @@ func (w *Workspace) startWatcher(repo domain.Repo) {
 		Repo: repo.Root, Op: "watch",
 		Fields: map[string]any{"status": "started", "backend": ""},
 	})
+}
+
+func (w *Workspace) applyRepoChange(state *RepoState, change domain.RepoChange) {
+	if w.Repo != state {
+		return
+	}
+	if state.watchWrites != 0 {
+		state.watchLost = state.watchLost || change.Overflow
+		return
+	}
+	if change.Overflow {
+		w.RefreshManually()
+	} else if change.Observed.IsZero() || change.Observed.After(state.watchCovered) {
+		w.Refresh(change.Meta)
+	}
 }
 
 // closeWatcher stops the current watcher, if any, and records it. root is the
@@ -281,6 +330,7 @@ func (w *Workspace) Close() {
 		})
 		w.Repo.Log.close()
 		w.Repo.cancelDetail()
+		w.Repo.cancelRefresh()
 		w.cancelLFS(w.Repo)
 	}
 	w.closeWatcher(root)
@@ -330,6 +380,13 @@ func (w *Workspace) RefreshManually() {
 	}
 }
 
+func (rs *RepoState) cancelRefresh() {
+	if rs.refreshCancel != nil {
+		rs.refreshCancel()
+		rs.refreshCancel = nil
+	}
+}
+
 // Refresh queries status and operation state again, and refs when meta is
 // set. Overlapping requests share one pending refresh, whose metadata scope is
 // the OR of those requests, independent of the running refresh. Each pass
@@ -350,8 +407,10 @@ func (w *Workspace) Refresh(meta bool) {
 	seq := rs.statusSeq
 	repo := rs.Repo
 	generation := rs.lfs.rules.generation
+	git, caps := w.Git, w.Caps
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	rs.refreshCancel = cancel
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		// The queries are reads against the immutable repo identity; the
 		// groups are independent, so they run concurrently instead of paying
@@ -377,32 +436,34 @@ func (w *Workspace) Refresh(meta bool) {
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			st, err = w.Git.Status(ctx, repo)
+			st, err = git.Status(ctx, repo)
 			if err == nil {
-				op = w.Git.Operation(ctx, repo)
-				conflicts, _ = w.Git.Conflicts(ctx, repo, st)
+				op = git.Operation(ctx, repo)
+				conflicts, _ = git.Conflicts(ctx, repo, st)
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			refs, refsErr = w.Git.Refs(ctx, repo)
+			refs, refsErr = git.Refs(ctx, repo)
 			if refsErr == nil {
-				remotes, _ = w.Git.Remotes(ctx, repo)
-				if sw, serr := w.stash(); serr == nil {
-					stashes, _ = sw.Stashes(ctx, repo)
+				remotes, _ = git.Remotes(ctx, repo)
+				if caps.Stash != nil {
+					stashes, _ = caps.Stash.Stashes(ctx, repo)
 				}
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			if wt, werr := w.worktrees(); werr == nil {
-				worktrees, worktreesErr = wt.Worktrees(ctx, repo)
+			if caps.Worktrees != nil {
+				worktrees, worktreesErr = caps.Worktrees.Worktrees(ctx, repo)
 			}
-			shallow, shallowErr = w.Git.IsShallow(ctx, repo)
+			shallow, shallowErr = git.IsShallow(ctx, repo)
 			// The remote HEAD names the branch a pull request targets; it is
 			// read with the other refs so a comparison never guesses while it
 			// is known.
-			remoteHeads, headsErr = w.remoteHeads(ctx, repo)
+			if h, ok := git.(remoteHeadReader); ok {
+				remoteHeads, headsErr = h.RemoteHeads(ctx, repo)
+			}
 		}()
 		wg.Wait()
 		w.post(func() {
@@ -410,6 +471,7 @@ func (w *Workspace) Refresh(meta bool) {
 				return
 			}
 			rs.refreshing = false
+			rs.refreshCancel = nil
 			staged, unstaged, untracked, conflicted := 0, 0, 0, 0
 			if err != nil {
 				w.markRepositoryError(rs.rootKey, err)

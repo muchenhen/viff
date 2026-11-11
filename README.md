@@ -67,6 +67,7 @@ periodically; if it no longer works, open an issue and we will refresh it.</sub>
 | Undo mistakes         | Command-Z reverses the last local commit, merge, rebase, checkout, or branch change from this session                                                         |
 | Resolve conflicts     | Ours / Result / Theirs views, per-block Ours/Theirs/Both actions, explicit mark-as-resolved, and a copyable context for an external AI tool                  |
 | Work across checkouts | Create worktrees from new or existing branches; manage submodules with dirty-work protection                                                                  |
+| Follow external changes | Native notifications for local NTFS/ReFS Git checkouts on Windows, with five-minute idle verification; [polling elsewhere on Windows](docs/decisions/0049-windows-native-file-watching.md) |
 | Track large files     | Detect Git LFS rules and missing git-lfs; count and list managed files on demand from the LFS marker or Git tool window menu                               |
 | Exchange changes      | Fetch, pull, push, force-with-lease, remotes, patches, and signing/credential settings                                                                        |
 | Work on the web       | Open commits, branches, comparisons, and the pull request form on GitHub, GitLab, Bitbucket, or Gitea                                                        |

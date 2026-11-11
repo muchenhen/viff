@@ -30,17 +30,18 @@ type refreshBackend struct {
 }
 
 type refreshBlock struct {
-	started chan struct{}
-	release chan struct{}
-	once    sync.Once
-	err     error
+	started  chan struct{}
+	release  chan struct{}
+	canceled chan struct{}
+	once     sync.Once
+	err      error
 }
 
 func (b *refreshBlock) unblock() { b.once.Do(func() { close(b.release) }) }
 
 func (b *refreshBackend) block(t *testing.T, err error) *refreshBlock {
 	t.Helper()
-	q := &refreshBlock{started: make(chan struct{}), release: make(chan struct{}), err: err}
+	q := &refreshBlock{started: make(chan struct{}), release: make(chan struct{}), canceled: make(chan struct{}), err: err}
 	b.blocks <- q
 	t.Cleanup(q.unblock)
 	return q
@@ -65,6 +66,7 @@ func (b *refreshBackend) Status(ctx context.Context, repo domain.Repo) (domain.S
 				return domain.Status{}, q.err
 			}
 		case <-ctx.Done():
+			close(q.canceled)
 			return domain.Status{}, ctx.Err()
 		}
 	default:
@@ -277,6 +279,11 @@ func TestRefreshPendingDoesNotCrossRepositoryLifetime(t *testing.T) {
 			f.w.Refresh(true)
 			if action != "gone" {
 				f.w.Close()
+				select {
+				case <-q.canceled:
+				case <-time.After(15 * time.Second):
+					t.Fatal("closing the repository left a status query running")
+				}
 			}
 			switch action {
 			case "switch":
@@ -298,20 +305,10 @@ func TestRefreshPendingDoesNotCrossRepositoryLifetime(t *testing.T) {
 			if current != nil {
 				currentSeq = current.statusSeq
 			}
-			// All new-generation work has settled. The next posted result is
-			// the deliberately late old refresh; wait without draining it.
 			q.unblock()
-			deadline := time.NewTimer(15 * time.Second)
-			defer deadline.Stop()
-			tick := time.NewTicker(time.Millisecond)
-			defer tick.Stop()
-			for !f.w.Pending() {
-				select {
-				case <-tick.C:
-				case <-deadline.C:
-					t.Fatal("old refresh did not post its result")
-				}
-			}
+			// Cancellation may post before or after a replacement opens.
+			// In the missing-repository case wait for the error to close it.
+			f.settle(func() bool { return action != "gone" || f.w.Repo == nil })
 			f.w.Drain()
 			if action == "gone" {
 				if f.w.Repo != nil {

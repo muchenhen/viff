@@ -140,7 +140,7 @@ func (r *Runner) lfsCommand(ctx context.Context, dir string, args ...string) ([]
 		if (sshpath.Is(dir) && r.SSH == nil) || wslpath.Is(dir) {
 			return r.lfsTransportFiles(ctx, dir, full)
 		}
-		return r.runInput(ctx, dir, nil, true, full...)
+		return r.runInput(ctx, dir, nil, true, 0, full...)
 	}
 	return r.Run(ctx, dir, full...)
 }
